@@ -1,0 +1,202 @@
+const express = require('express');
+const router = express.Router();
+const db = require('../config/database');
+
+// Create or retry a Maya Checkout payment
+router.post('/checkout/:order_id', async (req, res) => {
+    try {
+        const { order_id } = req.params;
+
+        if (!process.env.MAYA_PUBLIC_KEY) {
+            return res.status(500).json({
+                message: 'Maya public key is missing from .env.'
+            });
+        }
+
+        const [orders] = await db.query(
+            'SELECT * FROM orders WHERE order_id = ?',
+            [order_id]
+        );
+
+        if (orders.length === 0) {
+            return res.status(404).json({
+                message: 'Order not found.'
+            });
+        }
+
+        const order = orders[0];
+        const amount = Number(order.total_amount);
+
+        if (order.order_status !== 'pending') {
+            return res.status(400).json({
+                message: 'Only pending orders can be paid.'
+            });
+        }
+
+        if (!Number.isFinite(amount) || amount <= 0) {
+            return res.status(400).json({
+                message: 'Invalid order amount.'
+            });
+        }
+
+        const [existingPayments] = await db.query(
+            'SELECT * FROM payments WHERE order_id = ?',
+            [order_id]
+        );
+
+        let existingPayment = null;
+
+        if (existingPayments.length > 0) {
+            existingPayment = existingPayments[0];
+
+            if (existingPayment.payment_status === 'paid') {
+                return res.status(409).json({
+                    message: 'This order has already been paid.'
+                });
+            }
+
+            if (existingPayment.payment_status === 'pending') {
+                return res.status(409).json({
+                    message: 'A pending payment already exists.'
+                });
+            }
+
+            if (existingPayment.payment_status !== 'failed') {
+                return res.status(409).json({
+                    message: 'This payment cannot be retried.'
+                });
+            }
+        }
+
+        const referenceNumber =
+            `PET-ORDER-${order_id}-${Date.now()}`;
+
+        const mayaResponse = await fetch(
+            'https://pg-sandbox.paymaya.com/checkout/v1/checkouts',
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'Authorization':
+                        'Basic ' +
+                        Buffer.from(
+                            process.env.MAYA_PUBLIC_KEY + ':'
+                        ).toString('base64')
+                },
+                body: JSON.stringify({
+                    totalAmount: {
+                        value: Number(amount.toFixed(2)),
+                        currency: 'PHP'
+                    },
+                    requestReferenceNumber: referenceNumber
+                })
+            }
+        );
+
+        const mayaData = await mayaResponse.json();
+
+        if (!mayaResponse.ok) {
+            console.log('Maya error:', mayaData);
+
+            return res.status(400).json({
+                message: 'Maya Checkout request failed.',
+                error: mayaData
+            });
+        }
+
+        if (!mayaData.checkoutId || !mayaData.redirectUrl) {
+            return res.status(502).json({
+                message: 'Maya did not return a valid checkout session.'
+            });
+        }
+
+        let paymentId;
+
+        if (existingPayment) {
+            await db.query(
+                `UPDATE payments
+                SET payment_status = 'pending',
+                    payment_reference = ?,
+                    merchant_reference = ?,
+                    payment_method = ?
+                WHERE payment_id = ?`,
+                [
+                    mayaData.checkoutId,
+                    referenceNumber,
+                    'Maya Checkout',
+                    existingPayment.payment_id
+                ]
+            );
+
+            paymentId = existingPayment.payment_id;
+
+        } else {
+            const [result] = await db.query(
+                `INSERT INTO payments
+                (order_id, payment_method, payment_reference, merchant_reference)
+                VALUES (?, ?, ?, ?)`,
+                [
+                    order_id,
+                    'Maya Checkout',
+                    mayaData.checkoutId,
+                    referenceNumber
+                ]
+            );
+
+            paymentId = result.insertId;
+        }
+
+        res.status(201).json({
+            message: existingPayment
+                ? 'Maya Checkout retry created successfully!'
+                : 'Maya Checkout created successfully!',
+            payment_id: paymentId,
+            order_id: order_id,
+            payment_status: 'pending',
+            checkout_url: mayaData.redirectUrl
+        });
+
+    } catch (error) {
+        console.error('Payment error:', error);
+
+        res.status(500).json({
+            message: 'Failed to create Maya Checkout.',
+            error: error.message
+        });
+    }
+});
+
+// Getting payment details
+router.get('/:order_id', async (req, res) => {
+    try {
+        const { order_id } = req.params;
+
+        const [payments] = await db.query(
+            `SELECT payments.*, orders.total_amount
+            FROM payments
+            JOIN orders ON payments.order_id = orders.order_id
+            WHERE payments.order_id = ?`,
+            [order_id]
+        );
+
+        if (payments.length === 0) {
+            return res.status(404).json({
+                message: 'Payment not found.'
+            });
+        }
+
+        res.status(200).json({
+            message: 'Payment retrieved successfully!',
+            payment: payments[0]
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            message: 'Failed to retrieve payment.',
+            error: error.message
+        });
+    }
+});
+
+module.exports = router;
