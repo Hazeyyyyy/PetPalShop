@@ -32,7 +32,7 @@ app.use(cors());
 app.use(express.json());
 
 const swaggerDocument = YAML.parse(
-    fs.readFileSync(path.join(__dirname, 'openapi.yaml'), 'utf8')
+    fs.readFileSync(path.join(__dirname, '..', 'openapi.yaml'), 'utf8')
 );
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
