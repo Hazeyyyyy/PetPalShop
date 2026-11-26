@@ -1,5 +1,5 @@
-const db = require('../config/database');
 const { GoogleGenAI } = require('@google/genai');
+const aiRepository = require('../repositories/aiRepository');
 
 const getRecommendations = async (req, res) => {
     try {
@@ -17,21 +17,7 @@ const getRecommendations = async (req, res) => {
             });
         }
 
-        const [products] = await db.query(`
-            SELECT
-                products.product_id,
-                products.product_name,
-                products.description,
-                products.price,
-                products.stock,
-                categories.category_name
-            FROM products
-            LEFT JOIN categories
-            ON products.category_id = categories.category_id
-            WHERE products.stock > 0
-            ORDER BY products.product_name
-            LIMIT 50
-        `);
+        const products = await aiRepository.getAvailableProducts();
 
         if (products.length === 0) {
             return res.status(200).json({

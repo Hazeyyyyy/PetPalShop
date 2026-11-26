@@ -1,13 +1,10 @@
-const db = require('../config/database');
+const userRepository = require('../repositories/userRepository');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const getAllUsers = async (req, res) => {
     try {
-        const [users] = await db.query(
-            `SELECT user_id, name, email, role, created_at
-            FROM users`
-        );
+        const users = await userRepository.getAll();
 
         res.status(200).json({
             message: 'Users retrieved successfully!',
@@ -32,10 +29,7 @@ const registerUser = async (req, res) => {
             });
         }
 
-        const [existingUser] = await db.query(
-            'SELECT * FROM users WHERE email = ?',
-            [email]
-        );
+        const existingUser = await userRepository.getByEmail(email);
 
         if (existingUser.length > 0) {
             return res.status(409).json({
@@ -45,10 +39,10 @@ const registerUser = async (req, res) => {
 
         const passwordHash = await bcrypt.hash(password, 10);
 
-        const [result] = await db.query(
-            `INSERT INTO users (name, email, password_hash)
-            VALUES (?, ?, ?)`,
-            [name, email, passwordHash]
+        const result = await userRepository.create(
+            name,
+            email,
+            passwordHash
         );
 
         res.status(201).json({
@@ -74,10 +68,7 @@ const loginUser = async (req, res) => {
             });
         }
 
-        const [users] = await db.query(
-            'SELECT * FROM users WHERE email = ?',
-            [email]
-        );
+        const users = await userRepository.getByEmail(email);
 
         if (users.length === 0) {
             return res.status(401).json({

@@ -1,7 +1,7 @@
-const db = require('../config/database');
+const paymentRepository = require('../repositories/paymentRepository');
 
-const MayaPaymentProcessor = require('../services/MayaPaymentProcessor');
-const PaymentService = require('../services/PaymentService');
+const MayaPaymentProcessor = require('../patterns/payment/MayaPaymentProcessor');
+const PaymentService = require('../patterns/payment/PaymentService');
 
 const paymentService = new PaymentService(
     new MayaPaymentProcessor()
@@ -11,10 +11,7 @@ const checkPaymentOrderOwner = async (req, res, next) => {
     try {
         const { order_id } = req.params;
 
-        const [orders] = await db.query(
-            'SELECT user_id FROM orders WHERE order_id = ?',
-            [order_id]
-        );
+        const orders = await paymentRepository.getOrderOwner(order_id);
 
         if (orders.length === 0) {
             return res.status(404).json({
@@ -54,10 +51,7 @@ const createCheckout = async (req, res) => {
             });
         }
 
-        const [orders] = await db.query(
-            'SELECT * FROM orders WHERE order_id = ?',
-            [order_id]
-        );
+        const orders = await paymentRepository.getOrderById(order_id);
 
         const order = orders[0];
         const amount = Number(order.total_amount);
@@ -74,10 +68,7 @@ const createCheckout = async (req, res) => {
             });
         }
 
-        const [existingPayments] = await db.query(
-            'SELECT * FROM payments WHERE order_id = ?',
-            [order_id]
-        );
+        const existingPayments = await paymentRepository.getByOrderId(order_id);
 
         let existingPayment = null;
 
@@ -131,18 +122,14 @@ const createCheckout = async (req, res) => {
         let paymentId;
 
         if (existingPayment) {
-
-            connection = await db.getConnection();
+            connection = await paymentRepository.getConnection();
 
             await connection.beginTransaction();
             transactionStarted = true;
 
-            const [lockedPayments] = await connection.query(
-                `SELECT payment_status
-                FROM payments
-                WHERE payment_id = ?
-                FOR UPDATE`,
-                [existingPayment.payment_id]
+            const lockedPayments = await paymentRepository.getPaymentForUpdate(
+                connection,
+                existingPayment.payment_id
             );
 
             if (
@@ -157,11 +144,9 @@ const createCheckout = async (req, res) => {
                 });
             }
 
-            const [orderItems] = await connection.query(
-                `SELECT product_id, quantity
-                FROM order_items
-                WHERE order_id = ?`,
-                [order_id]
+            const orderItems = await paymentRepository.getOrderItems(
+                connection,
+                order_id
             );
 
             if (orderItems.length === 0) {
@@ -174,15 +159,9 @@ const createCheckout = async (req, res) => {
             }
 
             for (const item of orderItems) {
-                const [stockResult] = await connection.query(
-                    `UPDATE products
-                    SET stock = stock - ?
-                    WHERE product_id = ? AND stock >= ?`,
-                    [
-                        item.quantity,
-                        item.product_id,
-                        item.quantity
-                    ]
+                const stockResult = await paymentRepository.deductStock(
+                    connection,
+                    item
                 );
 
                 if (stockResult.affectedRows === 0) {
@@ -195,19 +174,11 @@ const createCheckout = async (req, res) => {
                 }
             }
 
-            await connection.query(
-                `UPDATE payments
-                SET payment_status = 'pending',
-                    payment_reference = ?,
-                    merchant_reference = ?,
-                    payment_method = ?
-                WHERE payment_id = ?`,
-                [
-                    mayaData.checkoutId,
-                    referenceNumber,
-                    'Maya Checkout',
-                    existingPayment.payment_id
-                ]
+            await paymentRepository.updatePaymentForRetry(
+                connection,
+                mayaData.checkoutId,
+                referenceNumber,
+                existingPayment.payment_id
             );
 
             await connection.commit();
@@ -216,17 +187,10 @@ const createCheckout = async (req, res) => {
             paymentId = existingPayment.payment_id;
 
         } else {
-
-            const [result] = await db.query(
-                `INSERT INTO payments
-                (order_id, payment_method, payment_reference, merchant_reference)
-                VALUES (?, ?, ?, ?)`,
-                [
-                    order_id,
-                    'Maya Checkout',
-                    mayaData.checkoutId,
-                    referenceNumber
-                ]
+            const result = await paymentRepository.create(
+                order_id,
+                mayaData.checkoutId,
+                referenceNumber
             );
 
             paymentId = result.insertId;
@@ -243,7 +207,6 @@ const createCheckout = async (req, res) => {
         });
 
     } catch (error) {
-
         if (connection && transactionStarted) {
             await connection.rollback();
         }
@@ -255,7 +218,6 @@ const createCheckout = async (req, res) => {
         });
 
     } finally {
-
         if (connection) {
             connection.release();
         }
@@ -266,12 +228,8 @@ const getPayment = async (req, res) => {
     try {
         const { order_id } = req.params;
 
-        const [payments] = await db.query(
-            `SELECT payments.*, orders.total_amount
-            FROM payments
-            JOIN orders ON payments.order_id = orders.order_id
-            WHERE payments.order_id = ?`,
-            [order_id]
+        const payments = await paymentRepository.getPaymentWithOrderAmount(
+            order_id
         );
 
         if (payments.length === 0) {
@@ -306,12 +264,8 @@ const reconcilePayment = async (req, res) => {
             });
         }
 
-        const [payments] = await db.query(
-            `SELECT payments.*, orders.total_amount
-            FROM payments
-            JOIN orders ON payments.order_id = orders.order_id
-            WHERE payments.order_id = ?`,
-            [order_id]
+        const payments = await paymentRepository.getPaymentWithOrderAmount(
+            order_id
         );
 
         if (payments.length === 0) {
@@ -389,17 +343,14 @@ const reconcilePayment = async (req, res) => {
             });
         }
 
-        connection = await db.getConnection();
+        connection = await paymentRepository.getConnection();
 
         await connection.beginTransaction();
         transactionStarted = true;
 
-        const [lockedPayments] = await connection.query(
-            `SELECT payment_status
-            FROM payments
-            WHERE payment_id = ?
-            FOR UPDATE`,
-            [payment.payment_id]
+        const lockedPayments = await paymentRepository.getPaymentForUpdate(
+            connection,
+            payment.payment_id
         );
 
         if (
@@ -416,35 +367,25 @@ const reconcilePayment = async (req, res) => {
         }
 
         if (successfulStatuses.includes(mayaStatus)) {
-
-            await connection.query(
-                `UPDATE payments
-                SET payment_status = 'paid'
-                WHERE payment_id = ?`,
-                [payment.payment_id]
+            await paymentRepository.markAsPaid(
+                connection,
+                payment.payment_id
             );
 
-            await connection.query(
-                `UPDATE orders
-                SET order_status = 'processing'
-                WHERE order_id = ?`,
-                [order_id]
+            await paymentRepository.updateOrderToProcessing(
+                connection,
+                order_id
             );
 
         } else {
-
-            await connection.query(
-                `UPDATE payments
-                SET payment_status = 'failed'
-                WHERE payment_id = ?`,
-                [payment.payment_id]
+            await paymentRepository.markAsFailed(
+                connection,
+                payment.payment_id
             );
 
-            const [orderItems] = await connection.query(
-                `SELECT product_id, quantity
-                FROM order_items
-                WHERE order_id = ?`,
-                [order_id]
+            const orderItems = await paymentRepository.getOrderItems(
+                connection,
+                order_id
             );
 
             if (orderItems.length === 0) {
@@ -454,11 +395,9 @@ const reconcilePayment = async (req, res) => {
             }
 
             for (const item of orderItems) {
-                await connection.query(
-                    `UPDATE products
-                    SET stock = stock + ?
-                    WHERE product_id = ?`,
-                    [item.quantity, item.product_id]
+                await paymentRepository.restoreStock(
+                    connection,
+                    item
                 );
             }
         }
@@ -475,7 +414,6 @@ const reconcilePayment = async (req, res) => {
         });
 
     } catch (error) {
-
         if (connection && transactionStarted) {
             await connection.rollback();
         }
@@ -487,7 +425,6 @@ const reconcilePayment = async (req, res) => {
         });
 
     } finally {
-
         if (connection) {
             connection.release();
         }

@@ -1,15 +1,8 @@
-const db = require('../config/database');
+const productRepository = require('../repositories/productRepository');
 
 const getAllProducts = async (req, res) => {
     try {
-        const [products] = await db.query(`
-            SELECT 
-                products.*,
-                categories.category_name
-            FROM products
-            LEFT JOIN categories
-            ON products.category_id = categories.category_id
-        `);
+        const products = await productRepository.getAll();
 
         res.status(200).json({
             message: 'Products retrieved successfully!',
@@ -60,11 +53,12 @@ const addProduct = async (req, res) => {
             });
         }
 
-        const [result] = await db.query(
-            `INSERT INTO products
-            (category_id, product_name, description, price, stock)
-            VALUES (?, ?, ?, ?, ?)`,
-            [category_id, product_name, description, price, stock]
+        const result = await productRepository.create(
+            category_id,
+            product_name,
+            description,
+            price,
+            stock
         );
 
         res.status(201).json({
@@ -118,22 +112,13 @@ const updateProduct = async (req, res) => {
             });
         }
 
-        const [result] = await db.query(
-            `UPDATE products
-            SET product_name = ?,
-                description = ?,
-                price = ?,
-                stock = ?,
-                category_id = ?
-            WHERE product_id = ?`,
-            [
-                product_name,
-                description,
-                price,
-                stock,
-                category_id,
-                id
-            ]
+        const result = await productRepository.update(
+            id,
+            product_name,
+            description,
+            price,
+            stock,
+            category_id
         );
 
         if (result.affectedRows === 0) {
@@ -158,10 +143,7 @@ const deleteProduct = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const [result] = await db.query(
-            'DELETE FROM products WHERE product_id = ?',
-            [id]
-        );
+        const result = await productRepository.deleteById(id);
 
         if (result.affectedRows === 0) {
             return res.status(404).json({

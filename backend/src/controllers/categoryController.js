@@ -1,10 +1,8 @@
-const db = require('../config/database');
+const categoryRepository = require('../repositories/categoryRepository');
 
 const getAllCategories = async (req, res) => {
     try {
-        const [categories] = await db.query(
-            'SELECT * FROM categories'
-        );
+        const categories = await categoryRepository.getAll();
 
         res.status(200).json({
             message: 'Categories retrieved successfully!',
@@ -32,10 +30,9 @@ const addCategory = async (req, res) => {
             });
         }
 
-        const [result] = await db.query(
-            `INSERT INTO categories (category_name, description)
-            VALUES (?, ?)`,
-            [category_name.trim(), description || null]
+        const result = await categoryRepository.create(
+            category_name.trim(),
+            description || null
         );
 
         res.status(201).json({
@@ -65,11 +62,10 @@ const updateCategory = async (req, res) => {
             });
         }
 
-        const [result] = await db.query(
-            `UPDATE categories
-            SET category_name = ?, description = ?
-            WHERE category_id = ?`,
-            [category_name.trim(), description || null, id]
+        const result = await categoryRepository.update(
+            id,
+            category_name.trim(),
+            description || null
         );
 
         if (result.affectedRows === 0) {
@@ -94,10 +90,7 @@ const deleteCategory = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const [result] = await db.query(
-            'DELETE FROM categories WHERE category_id = ?',
-            [id]
-        );
+        const result = await categoryRepository.deleteById(id);
 
         if (result.affectedRows === 0) {
             return res.status(404).json({
