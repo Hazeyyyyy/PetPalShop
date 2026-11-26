@@ -14,6 +14,7 @@ const petRoutes = require('./routes/petRoutes');
 const cartRoutes = require('./routes/cartRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
+const aiRoutes = require('./routes/aiRoutes');
 const mayaWebhook = require('./webhooks/mayaWebhook');
 
 const app = express();
@@ -66,6 +67,7 @@ app.use('/api/pets', petRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/ai', aiRoutes);
 
 app.listen(PORT, async () => {
     console.log(`Server is running on port ${PORT}`);
