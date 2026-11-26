@@ -67,6 +67,8 @@ function verifyMayaSignature(payload, signatureHeader) {
 
 // Receive Maya webhook
 router.post('/maya', async (req, res) => {
+    console.log('Maya webhook notification received!');
+    console.log('Webhook body:', JSON.stringify(req.body));
     let connection;
 
     try {
