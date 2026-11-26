@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Nov 22, 2026 at 06:20 PM
+-- Generation Time: Nov 25, 2026 at 06:40 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -32,6 +32,13 @@ CREATE TABLE `cart` (
   `user_id` int(11) NOT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `cart`
+--
+
+INSERT INTO `cart` (`cart_id`, `user_id`, `created_at`) VALUES
+(1, 1, '2026-11-25 03:50:52');
 
 -- --------------------------------------------------------
 
@@ -66,7 +73,8 @@ INSERT INTO `categories` (`category_id`, `category_name`, `description`) VALUES
 (1, 'Pet Food', 'Food and treats for pets'),
 (2, 'Pet Toys', 'Toys for dogs and cats'),
 (3, 'Grooming', 'Grooming and cleaning supplies'),
-(4, 'Accessories', 'Pet collars, bowls, and other accessories');
+(4, 'Accessories', 'Pet collars, bowls, and other accessories'),
+(5, 'Pet Accessories and Supplies', 'Accessories and supplies for all pets');
 
 -- --------------------------------------------------------
 
@@ -82,6 +90,13 @@ CREATE TABLE `orders` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+--
+-- Dumping data for table `orders`
+--
+
+INSERT INTO `orders` (`order_id`, `user_id`, `total_amount`, `order_status`, `created_at`) VALUES
+(1, 1, 500.00, 'pending', '2026-11-25 03:57:49');
+
 -- --------------------------------------------------------
 
 --
@@ -96,6 +111,13 @@ CREATE TABLE `order_items` (
   `price` decimal(10,2) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+--
+-- Dumping data for table `order_items`
+--
+
+INSERT INTO `order_items` (`order_item_id`, `order_id`, `product_id`, `quantity`, `price`) VALUES
+(1, 1, 1, 2, 250.00);
+
 -- --------------------------------------------------------
 
 --
@@ -108,8 +130,16 @@ CREATE TABLE `payments` (
   `payment_method` varchar(50) DEFAULT NULL,
   `payment_reference` varchar(150) DEFAULT NULL,
   `payment_status` enum('pending','paid','failed','refunded') DEFAULT 'pending',
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `merchant_reference` varchar(150) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `payments`
+--
+
+INSERT INTO `payments` (`payment_id`, `order_id`, `payment_method`, `payment_reference`, `payment_status`, `created_at`, `merchant_reference`) VALUES
+(1, 1, 'Maya Checkout', '83875c40-1826-478d-8aa4-64088b1ec15f', 'pending', '2026-11-25 04:22:02', 'PET-ORDER-1-1795581270661');
 
 -- --------------------------------------------------------
 
@@ -127,6 +157,13 @@ CREATE TABLE `pets` (
   `size` varchar(30) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `pets`
+--
+
+INSERT INTO `pets` (`pet_id`, `user_id`, `pet_name`, `pet_type`, `breed`, `age`, `size`, `created_at`) VALUES
+(1, 1, 'Mochi', 'Cat', 'Domestic Shorthair', 2, 'Small', '2026-11-25 03:44:53');
 
 -- --------------------------------------------------------
 
@@ -150,7 +187,7 @@ CREATE TABLE `products` (
 --
 
 INSERT INTO `products` (`product_id`, `category_id`, `product_name`, `description`, `price`, `stock`, `image_url`, `created_at`) VALUES
-(1, 1, 'Whiskas Dry Cat Food', 'Dry food for adult cats', 250.00, 30, NULL, '2026-11-22 16:12:44'),
+(1, 1, 'Whiskas Dry Cat Food', 'Dry food for adult cats', 250.00, 28, NULL, '2026-11-22 16:12:44'),
 (2, 1, 'Pedigree Adult Dog Food', 'Complete food for adult dogs', 320.00, 25, NULL, '2026-11-22 16:12:44'),
 (3, 2, 'Cat Feather Wand', 'Interactive feather toy for cats', 120.00, 15, NULL, '2026-11-22 16:12:44'),
 (4, 3, 'Pet Shampoo', 'Gentle shampoo for dogs and cats', 180.00, 20, NULL, '2026-11-22 16:12:44'),
@@ -187,6 +224,13 @@ CREATE TABLE `users` (
   `role` enum('customer','admin') DEFAULT 'customer',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `users`
+--
+
+INSERT INTO `users` (`user_id`, `name`, `email`, `password_hash`, `role`, `created_at`) VALUES
+(1, 'Customer', 'customer@gmail.com', '$2b$10$s4j1afesk4jHlWJenoHi1umwt4T8SZpmUjjsM3gdcg9kGpt4D4iN.', 'customer', '2026-11-25 03:35:37');
 
 --
 -- Indexes for dumped tables
@@ -273,43 +317,43 @@ ALTER TABLE `users`
 -- AUTO_INCREMENT for table `cart`
 --
 ALTER TABLE `cart`
-  MODIFY `cart_id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `cart_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
 
 --
 -- AUTO_INCREMENT for table `cart_items`
 --
 ALTER TABLE `cart_items`
-  MODIFY `cart_item_id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `cart_item_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT for table `categories`
 --
 ALTER TABLE `categories`
-  MODIFY `category_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `category_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
 
 --
 -- AUTO_INCREMENT for table `orders`
 --
 ALTER TABLE `orders`
-  MODIFY `order_id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `order_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
 
 --
 -- AUTO_INCREMENT for table `order_items`
 --
 ALTER TABLE `order_items`
-  MODIFY `order_item_id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `order_item_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
 
 --
 -- AUTO_INCREMENT for table `payments`
 --
 ALTER TABLE `payments`
-  MODIFY `payment_id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `payment_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
 
 --
 -- AUTO_INCREMENT for table `pets`
 --
 ALTER TABLE `pets`
-  MODIFY `pet_id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `pet_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT for table `products`
@@ -327,7 +371,7 @@ ALTER TABLE `subscriptions`
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `user_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
 
 --
 -- Constraints for dumped tables

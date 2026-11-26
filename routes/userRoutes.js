@@ -2,9 +2,15 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/database');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
-// Getting all users
-router.get('/', async (req, res) => {
+const {
+    authenticateToken,
+    authorizeRole
+} = require('../middleware/authMiddleware');
+
+// Getting all users (Admin only)
+router.get('/', authenticateToken, authorizeRole('admin'), async (req, res) => {
     try {
         const [users] = await db.query(
             `SELECT user_id, name, email, role, created_at
@@ -46,7 +52,6 @@ router.post('/register', async (req, res) => {
             });
         }
 
-        // Hashing password
         const passwordHash = await bcrypt.hash(password, 10);
 
         const [result] = await db.query(
@@ -103,8 +108,18 @@ router.post('/login', async (req, res) => {
             });
         }
 
+        const token = jwt.sign(
+            {
+                user_id: user.user_id,
+                role: user.role
+            },
+            process.env.JWT_SECRET,
+            { expiresIn: '1d' }
+        );
+
         res.status(200).json({
             message: 'Login successful!',
+            token: token,
             user: {
                 user_id: user.user_id,
                 name: user.name,
