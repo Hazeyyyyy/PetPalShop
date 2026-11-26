@@ -1,20 +1,10 @@
-const express = require('express');
-const router = express.Router();
-const db = require('../config/database');
+const userRepository = require('../repositories/userRepository');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-const {
-    authenticateToken,
-    authorizeRole
-} = require('../middleware/authMiddleware');
-
-router.get('/', authenticateToken, authorizeRole('admin'), async (req, res) => {
+const getAllUsers = async (req, res) => {
     try {
-        const [users] = await db.query(
-            `SELECT user_id, name, email, role, created_at
-            FROM users`
-        );
+        const users = await userRepository.getAll();
 
         res.status(200).json({
             message: 'Users retrieved successfully!',
@@ -27,9 +17,9 @@ router.get('/', authenticateToken, authorizeRole('admin'), async (req, res) => {
             error: error.message
         });
     }
-});
+};
 
-router.post('/register', async (req, res) => {
+const registerUser = async (req, res) => {
     try {
         const { name, email, password } = req.body;
 
@@ -39,10 +29,7 @@ router.post('/register', async (req, res) => {
             });
         }
 
-        const [existingUser] = await db.query(
-            'SELECT * FROM users WHERE email = ?',
-            [email]
-        );
+        const existingUser = await userRepository.getByEmail(email);
 
         if (existingUser.length > 0) {
             return res.status(409).json({
@@ -52,10 +39,10 @@ router.post('/register', async (req, res) => {
 
         const passwordHash = await bcrypt.hash(password, 10);
 
-        const [result] = await db.query(
-            `INSERT INTO users (name, email, password_hash)
-            VALUES (?, ?, ?)`,
-            [name, email, passwordHash]
+        const result = await userRepository.create(
+            name,
+            email,
+            passwordHash
         );
 
         res.status(201).json({
@@ -69,9 +56,9 @@ router.post('/register', async (req, res) => {
             error: error.message
         });
     }
-});
+};
 
-router.post('/login', async (req, res) => {
+const loginUser = async (req, res) => {
     try {
         const { email, password } = req.body;
 
@@ -81,10 +68,7 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        const [users] = await db.query(
-            'SELECT * FROM users WHERE email = ?',
-            [email]
-        );
+        const users = await userRepository.getByEmail(email);
 
         if (users.length === 0) {
             return res.status(401).json({
@@ -131,6 +115,10 @@ router.post('/login', async (req, res) => {
             error: error.message
         });
     }
-});
+};
 
-module.exports = router;
+module.exports = {
+    getAllUsers,
+    registerUser,
+    loginUser
+};

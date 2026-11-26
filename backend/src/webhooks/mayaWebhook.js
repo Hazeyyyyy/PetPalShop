@@ -2,7 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 
-const db = require('../config/database');
+const webhookRepository = require('../repositories/webhookRepository');
 const mayaWebhookPublicKeys = require('../config/mayaPublicKeys');
 
 function flattenObject(obj, prefix = '', data = []) {
@@ -67,7 +67,6 @@ function verifyMayaSignature(payload, signatureHeader) {
 
 // Receiving Maya webhook notifications
 router.post('/maya', async (req, res) => {
-
     console.log('Maya webhook notification received!');
 
     let connection;
@@ -150,21 +149,17 @@ router.post('/maya', async (req, res) => {
             });
         }
 
-        connection = await db.getConnection();
+        connection = await webhookRepository.getConnection();
 
         const eventKey = `${requestReferenceNumber}:${paymentStatus}`;
 
         try {
-            const [eventResult] = await connection.query(
-                `INSERT INTO webhook_events
-                (event_key, merchant_reference, event_type, event_payload)
-                VALUES (?, ?, ?, ?)`,
-                [
-                    eventKey,
-                    requestReferenceNumber,
-                    paymentStatus,
-                    JSON.stringify(req.body)
-                ]
+            const eventResult = await webhookRepository.createEvent(
+                connection,
+                eventKey,
+                requestReferenceNumber,
+                paymentStatus,
+                req.body
             );
 
             eventId = eventResult.insertId;
@@ -181,21 +176,16 @@ router.post('/maya', async (req, res) => {
 
         console.log('Webhook event saved:', eventId);
 
-        const [payments] = await connection.query(
-            `SELECT payments.*, orders.total_amount
-            FROM payments
-            JOIN orders
-            ON payments.order_id = orders.order_id
-            WHERE payments.merchant_reference = ?`,
-            [requestReferenceNumber]
+        const payments = await webhookRepository.getPaymentByMerchantReference(
+            connection,
+            requestReferenceNumber
         );
 
         if (payments.length === 0) {
-            await connection.query(
-                `UPDATE webhook_events
-                SET processing_status = 'failed'
-                WHERE event_id = ?`,
-                [eventId]
+            await webhookRepository.updateEventStatus(
+                connection,
+                eventId,
+                'failed'
             );
 
             return res.status(404).json({
@@ -211,11 +201,10 @@ router.post('/maya', async (req, res) => {
             Math.round(Number(payment.total_amount) * 100) !==
             Math.round(amount * 100)
         ) {
-            await connection.query(
-                `UPDATE webhook_events
-                SET processing_status = 'failed'
-                WHERE event_id = ?`,
-                [eventId]
+            await webhookRepository.updateEventStatus(
+                connection,
+                eventId,
+                'failed'
             );
 
             return res.status(400).json({
@@ -227,25 +216,19 @@ router.post('/maya', async (req, res) => {
         transactionStarted = true;
 
         if (paymentStatus === 'PAYMENT_SUCCESS') {
-
-            const [paymentResult] = await connection.query(
-                `UPDATE payments
-                SET payment_status = 'paid'
-                WHERE payment_id = ?
-                AND payment_status = 'pending'`,
-                [payment.payment_id]
+            const paymentResult = await webhookRepository.updatePaymentStatus(
+                connection,
+                payment.payment_id,
+                'paid'
             );
 
             if (paymentResult.affectedRows === 0) {
                 await connection.rollback();
                 transactionStarted = false;
 
-                await connection.query(
-                    `UPDATE webhook_events
-                    SET processing_status = 'processed',
-                        processed_at = CURRENT_TIMESTAMP
-                    WHERE event_id = ?`,
-                    [eventId]
+                await webhookRepository.markEventAsProcessed(
+                    connection,
+                    eventId
                 );
 
                 return res.status(200).json({
@@ -253,35 +236,27 @@ router.post('/maya', async (req, res) => {
                 });
             }
 
-            await connection.query(
-                `UPDATE orders
-                SET order_status = 'processing'
-                WHERE order_id = ?`,
-                [payment.order_id]
+            await webhookRepository.updateOrderToProcessing(
+                connection,
+                payment.order_id
             );
 
             console.log('Payment successfully marked as PAID!');
 
         } else {
-
-            const [paymentResult] = await connection.query(
-                `UPDATE payments
-                SET payment_status = 'failed'
-                WHERE payment_id = ?
-                AND payment_status = 'pending'`,
-                [payment.payment_id]
+            const paymentResult = await webhookRepository.updatePaymentStatus(
+                connection,
+                payment.payment_id,
+                'failed'
             );
 
             if (paymentResult.affectedRows === 0) {
                 await connection.rollback();
                 transactionStarted = false;
 
-                await connection.query(
-                    `UPDATE webhook_events
-                    SET processing_status = 'processed',
-                        processed_at = CURRENT_TIMESTAMP
-                    WHERE event_id = ?`,
-                    [eventId]
+                await webhookRepository.markEventAsProcessed(
+                    connection,
+                    eventId
                 );
 
                 return res.status(200).json({
@@ -289,11 +264,9 @@ router.post('/maya', async (req, res) => {
                 });
             }
 
-            const [orderItems] = await connection.query(
-                `SELECT product_id, quantity
-                FROM order_items
-                WHERE order_id = ?`,
-                [payment.order_id]
+            const orderItems = await webhookRepository.getOrderItems(
+                connection,
+                payment.order_id
             );
 
             if (orderItems.length === 0) {
@@ -301,11 +274,9 @@ router.post('/maya', async (req, res) => {
             }
 
             for (const item of orderItems) {
-                await connection.query(
-                    `UPDATE products
-                    SET stock = stock + ?
-                    WHERE product_id = ?`,
-                    [item.quantity, item.product_id]
+                await webhookRepository.restoreStock(
+                    connection,
+                    item
                 );
             }
 
@@ -313,12 +284,9 @@ router.post('/maya', async (req, res) => {
             console.log('Payment marked as FAILED.');
         }
 
-        await connection.query(
-            `UPDATE webhook_events
-            SET processing_status = 'processed',
-                processed_at = CURRENT_TIMESTAMP
-            WHERE event_id = ?`,
-            [eventId]
+        await webhookRepository.markEventAsProcessed(
+            connection,
+            eventId
         );
 
         await connection.commit();
@@ -332,7 +300,6 @@ router.post('/maya', async (req, res) => {
         });
 
     } catch (error) {
-
         if (connection && transactionStarted) {
             await connection.rollback();
             transactionStarted = false;
@@ -340,11 +307,10 @@ router.post('/maya', async (req, res) => {
 
         if (connection && eventId) {
             try {
-                await connection.query(
-                    `UPDATE webhook_events
-                    SET processing_status = 'failed'
-                    WHERE event_id = ?`,
-                    [eventId]
+                await webhookRepository.updateEventStatus(
+                    connection,
+                    eventId,
+                    'failed'
                 );
             } catch (updateError) {
                 console.log('Could not update webhook event status.');
@@ -358,7 +324,6 @@ router.post('/maya', async (req, res) => {
         });
 
     } finally {
-
         if (connection) {
             connection.release();
         }

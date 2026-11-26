@@ -1,29 +1,13 @@
-const express = require('express');
-const router = express.Router();
-const db = require('../config/database');
+const petRepository = require('../repositories/petRepository');
 
-const {
-    authenticateToken,
-    authorizeRole
-} = require('../middleware/authMiddleware');
-
-router.get('/', authenticateToken, async (req, res) => {
+const getPets = async (req, res) => {
     try {
         let pets;
 
         if (req.user.role === 'admin') {
-            [pets] = await db.query(`
-                SELECT pets.*, users.name AS owner_name
-                FROM pets
-                JOIN users ON pets.user_id = users.user_id
-            `);
+            pets = await petRepository.getAll();
         } else {
-            [pets] = await db.query(`
-                SELECT pets.*, users.name AS owner_name
-                FROM pets
-                JOIN users ON pets.user_id = users.user_id
-                WHERE pets.user_id = ?
-            `, [req.user.user_id]);
+            pets = await petRepository.getByUserId(req.user.user_id);
         }
 
         res.status(200).json({
@@ -37,9 +21,9 @@ router.get('/', authenticateToken, async (req, res) => {
             error: error.message
         });
     }
-});
+};
 
-router.post('/', authenticateToken, async (req, res) => {
+const addPet = async (req, res) => {
     try {
         const { pet_name, pet_type, breed, age, size } = req.body;
 
@@ -62,18 +46,13 @@ router.post('/', authenticateToken, async (req, res) => {
             }
         }
 
-        const [result] = await db.query(
-            `INSERT INTO pets
-            (user_id, pet_name, pet_type, breed, age, size)
-            VALUES (?, ?, ?, ?, ?, ?)`,
-            [
-                req.user.user_id,
-                pet_name.trim(),
-                pet_type.trim(),
-                breed || null,
-                age === '' || age === undefined ? null : age,
-                size || null
-            ]
+        const result = await petRepository.create(
+            req.user.user_id,
+            pet_name.trim(),
+            pet_type.trim(),
+            breed || null,
+            age === '' || age === undefined ? null : age,
+            size || null
         );
 
         res.status(201).json({
@@ -87,9 +66,9 @@ router.post('/', authenticateToken, async (req, res) => {
             error: error.message
         });
     }
-});
+};
 
-router.put('/:id', authenticateToken, async (req, res) => {
+const updatePet = async (req, res) => {
     try {
         const { id } = req.params;
         const { pet_name, pet_type, breed, age, size } = req.body;
@@ -119,27 +98,16 @@ router.put('/:id', authenticateToken, async (req, res) => {
             }
         }
 
-        let sql = `
-            UPDATE pets
-            SET pet_name = ?, pet_type = ?, breed = ?, age = ?, size = ?
-            WHERE pet_id = ?
-        `;
-
-        let values = [
+        const result = await petRepository.update(
+            id,
             pet_name.trim(),
             pet_type.trim(),
             breed || null,
             age === '' || age === undefined ? null : age,
             size || null,
-            id
-        ];
-
-        if (req.user.role !== 'admin') {
-            sql += ' AND user_id = ?';
-            values.push(req.user.user_id);
-        }
-
-        const [result] = await db.query(sql, values);
+            req.user.user_id,
+            req.user.role === 'admin'
+        );
 
         if (result.affectedRows === 0) {
             return res.status(404).json({
@@ -157,9 +125,9 @@ router.put('/:id', authenticateToken, async (req, res) => {
             error: error.message
         });
     }
-});
+};
 
-router.delete('/:id', authenticateToken, async (req, res) => {
+const deletePet = async (req, res) => {
     try {
         const { id } = req.params;
 
@@ -169,15 +137,11 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        let sql = 'DELETE FROM pets WHERE pet_id = ?';
-        let values = [id];
-
-        if (req.user.role !== 'admin') {
-            sql += ' AND user_id = ?';
-            values.push(req.user.user_id);
-        }
-
-        const [result] = await db.query(sql, values);
+        const result = await petRepository.deleteById(
+            id,
+            req.user.user_id,
+            req.user.role === 'admin'
+        );
 
         if (result.affectedRows === 0) {
             return res.status(404).json({
@@ -195,6 +159,11 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             error: error.message
         });
     }
-});
+};
 
-module.exports = router;
+module.exports = {
+    getPets,
+    addPet,
+    updatePet,
+    deletePet
+};

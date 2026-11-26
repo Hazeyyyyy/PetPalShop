@@ -1,8 +1,4 @@
-const express = require('express');
-const router = express.Router();
-const db = require('../config/database');
-
-const { authenticateToken } = require('../middleware/authMiddleware');
+const cartRepository = require('../repositories/cartRepository');
 
 const checkCartOwner = (req, res, next) => {
     const { user_id } = req.params;
@@ -16,14 +12,11 @@ const checkCartOwner = (req, res, next) => {
     next();
 };
 
-router.get('/:user_id', authenticateToken, checkCartOwner, async (req, res) => {
+const getCart = async (req, res) => {
     try {
         const { user_id } = req.params;
 
-        const [carts] = await db.query(
-            'SELECT * FROM cart WHERE user_id = ?',
-            [user_id]
-        );
+        const carts = await cartRepository.getByUserId(user_id);
 
         if (carts.length === 0) {
             return res.status(200).json({
@@ -34,19 +27,7 @@ router.get('/:user_id', authenticateToken, checkCartOwner, async (req, res) => {
 
         const cart_id = carts[0].cart_id;
 
-        const [items] = await db.query(`
-            SELECT
-                cart_items.cart_item_id,
-                cart_items.product_id,
-                products.product_name,
-                products.price,
-                cart_items.quantity,
-                (products.price * cart_items.quantity) AS subtotal
-            FROM cart_items
-            JOIN products
-            ON cart_items.product_id = products.product_id
-            WHERE cart_items.cart_id = ?
-        `, [cart_id]);
+        const items = await cartRepository.getItems(cart_id);
 
         res.status(200).json({
             message: 'Cart retrieved successfully!',
@@ -60,9 +41,9 @@ router.get('/:user_id', authenticateToken, checkCartOwner, async (req, res) => {
             error: error.message
         });
     }
-});
+};
 
-router.post('/:user_id/items', authenticateToken, checkCartOwner, async (req, res) => {
+const addToCart = async (req, res) => {
     try {
         const { user_id } = req.params;
         const { product_id, quantity } = req.body;
@@ -81,10 +62,7 @@ router.post('/:user_id/items', authenticateToken, checkCartOwner, async (req, re
             });
         }
 
-        const [products] = await db.query(
-            'SELECT * FROM products WHERE product_id = ?',
-            [product_id]
-        );
+        const products = await cartRepository.getProductById(product_id);
 
         if (products.length === 0) {
             return res.status(404).json({
@@ -94,28 +72,20 @@ router.post('/:user_id/items', authenticateToken, checkCartOwner, async (req, re
 
         const product = products[0];
 
-        const [carts] = await db.query(
-            'SELECT * FROM cart WHERE user_id = ?',
-            [user_id]
-        );
+        const carts = await cartRepository.getByUserId(user_id);
 
         let cart_id;
 
         if (carts.length === 0) {
-            const [newCart] = await db.query(
-                'INSERT INTO cart (user_id) VALUES (?)',
-                [user_id]
-            );
-
+            const newCart = await cartRepository.createCart(user_id);
             cart_id = newCart.insertId;
         } else {
             cart_id = carts[0].cart_id;
         }
 
-        const [existingItems] = await db.query(
-            `SELECT * FROM cart_items
-            WHERE cart_id = ? AND product_id = ?`,
-            [cart_id, product_id]
+        const existingItems = await cartRepository.getCartItem(
+            cart_id,
+            product_id
         );
 
         let totalQuantity = Number(quantity);
@@ -131,18 +101,15 @@ router.post('/:user_id/items', authenticateToken, checkCartOwner, async (req, re
         }
 
         if (existingItems.length > 0) {
-            await db.query(
-                `UPDATE cart_items
-                SET quantity = ?
-                WHERE cart_item_id = ?`,
-                [totalQuantity, existingItems[0].cart_item_id]
+            await cartRepository.updateCartItemQuantity(
+                totalQuantity,
+                existingItems[0].cart_item_id
             );
         } else {
-            await db.query(
-                `INSERT INTO cart_items
-                (cart_id, product_id, quantity)
-                VALUES (?, ?, ?)`,
-                [cart_id, product_id, quantity]
+            await cartRepository.createCartItem(
+                cart_id,
+                product_id,
+                quantity
             );
         }
 
@@ -156,9 +123,9 @@ router.post('/:user_id/items', authenticateToken, checkCartOwner, async (req, re
             error: error.message
         });
     }
-});
+};
 
-router.put('/:user_id/items/:cart_item_id', authenticateToken, checkCartOwner, async (req, res) => {
+const updateCartItem = async (req, res) => {
     try {
         const { user_id, cart_item_id } = req.params;
         const { quantity } = req.body;
@@ -175,14 +142,10 @@ router.put('/:user_id/items/:cart_item_id', authenticateToken, checkCartOwner, a
             });
         }
 
-        const [items] = await db.query(`
-            SELECT cart_items.*, products.stock
-            FROM cart_items
-            JOIN cart ON cart_items.cart_id = cart.cart_id
-            JOIN products ON cart_items.product_id = products.product_id
-            WHERE cart_items.cart_item_id = ?
-            AND cart.user_id = ?
-        `, [cart_item_id, user_id]);
+        const items = await cartRepository.getCartItemWithStock(
+            cart_item_id,
+            user_id
+        );
 
         if (items.length === 0) {
             return res.status(404).json({
@@ -196,9 +159,9 @@ router.put('/:user_id/items/:cart_item_id', authenticateToken, checkCartOwner, a
             });
         }
 
-        await db.query(
-            'UPDATE cart_items SET quantity = ? WHERE cart_item_id = ?',
-            [quantity, cart_item_id]
+        await cartRepository.updateCartItemQuantity(
+            quantity,
+            cart_item_id
         );
 
         res.status(200).json({
@@ -211,18 +174,16 @@ router.put('/:user_id/items/:cart_item_id', authenticateToken, checkCartOwner, a
             error: error.message
         });
     }
-});
+};
 
-router.delete('/:user_id/items/:cart_item_id', authenticateToken, checkCartOwner, async (req, res) => {
+const removeCartItem = async (req, res) => {
     try {
         const { user_id, cart_item_id } = req.params;
 
-        const [result] = await db.query(`
-            DELETE cart_items FROM cart_items
-            JOIN cart ON cart_items.cart_id = cart.cart_id
-            WHERE cart_items.cart_item_id = ?
-            AND cart.user_id = ?
-        `, [cart_item_id, user_id]);
+        const result = await cartRepository.deleteCartItem(
+            cart_item_id,
+            user_id
+        );
 
         if (result.affectedRows === 0) {
             return res.status(404).json({
@@ -240,6 +201,12 @@ router.delete('/:user_id/items/:cart_item_id', authenticateToken, checkCartOwner
             error: error.message
         });
     }
-});
+};
 
-module.exports = router;
+module.exports = {
+    checkCartOwner,
+    getCart,
+    addToCart,
+    updateCartItem,
+    removeCartItem
+};
