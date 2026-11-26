@@ -46,10 +46,21 @@ router.post('/:user_id', authenticateToken, async (req, res) => {
 
     try {
         const { user_id } = req.params;
+        const { coupon_code } = req.body;
 
         if (Number(user_id) !== Number(req.user.user_id)) {
             return res.status(403).json({
                 message: 'Access denied. You can only place your own orders.'
+            });
+        }
+
+        if (
+            coupon_code !== undefined &&
+            coupon_code !== null &&
+            typeof coupon_code !== 'string'
+        ) {
+            return res.status(400).json({
+                message: 'Invalid coupon code.'
             });
         }
 
@@ -102,12 +113,108 @@ router.post('/:user_id', authenticateToken, async (req, res) => {
             total_amount += Number(item.price) * item.quantity;
         }
 
-        total_amount = Number(total_amount.toFixed(2));
+        const subtotal = Number(total_amount.toFixed(2));
+
+        let coupon_id = null;
+        let discount_amount = 0;
+
+        const code = coupon_code?.trim();
+
+        if (code) {
+            const [coupons] = await connection.query(
+                `SELECT *
+                FROM coupons
+                WHERE coupon_code = ?
+                FOR UPDATE`,
+                [code]
+            );
+
+            if (coupons.length === 0) {
+                await connection.rollback();
+                return res.status(400).json({
+                    message: 'Invalid coupon code.'
+                });
+            }
+
+            const coupon = coupons[0];
+
+            if (!coupon.is_active) {
+                await connection.rollback();
+                return res.status(400).json({
+                    message: 'This coupon is inactive.'
+                });
+            }
+
+            if (
+                coupon.expiry_date &&
+                new Date(coupon.expiry_date) <= new Date()
+            ) {
+                await connection.rollback();
+                return res.status(400).json({
+                    message: 'This coupon has expired.'
+                });
+            }
+
+            if (
+                coupon.usage_limit !== null &&
+                coupon.times_used >= coupon.usage_limit
+            ) {
+                await connection.rollback();
+                return res.status(400).json({
+                    message: 'This coupon has reached its usage limit.'
+                });
+            }
+
+            if (subtotal < Number(coupon.minimum_order)) {
+                await connection.rollback();
+                return res.status(400).json({
+                    message: `Minimum order amount is ${coupon.minimum_order}.`
+                });
+            }
+
+            const discount_value = Number(coupon.discount_value);
+
+            if (
+                !Number.isFinite(discount_value) ||
+                discount_value <= 0 ||
+                (
+                    coupon.discount_type === 'percentage' &&
+                    discount_value > 100
+                )
+            ) {
+                await connection.rollback();
+                return res.status(400).json({
+                    message: 'This coupon has an invalid discount value.'
+                });
+            }
+
+            if (coupon.discount_type === 'percentage') {
+                discount_amount = subtotal * (discount_value / 100);
+            } else if (coupon.discount_type === 'fixed') {
+                discount_amount = discount_value;
+            } else {
+                await connection.rollback();
+                return res.status(400).json({
+                    message: 'Invalid coupon discount type.'
+                });
+            }
+
+            discount_amount = Number(
+                Math.min(discount_amount, subtotal).toFixed(2)
+            );
+
+            coupon_id = coupon.coupon_id;
+        }
+
+        total_amount = Number(
+            (subtotal - discount_amount).toFixed(2)
+        );
 
         const [orderResult] = await connection.query(
-            `INSERT INTO orders (user_id, total_amount)
-            VALUES (?, ?)`,
-            [user_id, total_amount]
+            `INSERT INTO orders
+            (user_id, total_amount, coupon_id, discount_amount)
+            VALUES (?, ?, ?, ?)`,
+            [user_id, total_amount, coupon_id, discount_amount]
         );
 
         const order_id = orderResult.insertId;
@@ -139,6 +246,15 @@ router.post('/:user_id', authenticateToken, async (req, res) => {
             );
         }
 
+        if (coupon_id !== null) {
+            await connection.query(
+                `UPDATE coupons
+                SET times_used = times_used + 1
+                WHERE coupon_id = ?`,
+                [coupon_id]
+            );
+        }
+
         await connection.query(
             'DELETE FROM cart_items WHERE cart_id = ?',
             [cart_id]
@@ -149,12 +265,17 @@ router.post('/:user_id', authenticateToken, async (req, res) => {
         res.status(201).json({
             message: 'Order placed successfully!',
             order_id: order_id,
+            subtotal: subtotal,
+            discount_amount: discount_amount,
             total_amount: total_amount,
+            coupon_id: coupon_id,
             order_status: 'pending'
         });
 
     } catch (error) {
         await connection.rollback();
+
+        console.error('Order creation error:', error.message);
 
         res.status(500).json({
             message: 'Failed to place order.',
