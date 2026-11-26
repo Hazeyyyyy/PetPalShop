@@ -110,12 +110,27 @@ router.post('/maya', async (req, res) => {
             req.body.currency ||
             req.body.totalAmount?.currency;
 
+        console.log('Maya webhook details:', {
+            requestReferenceNumber,
+            paymentStatus,
+            amount,
+            currency,
+            receivedFields: Object.keys(req.body)
+        });
+
         if (
             !requestReferenceNumber ||
             !paymentStatus ||
             !Number.isFinite(amount) ||
             currency !== 'PHP'
         ) {
+            console.log('Webhook validation failed:', {
+                hasReference: Boolean(requestReferenceNumber),
+                hasStatus: Boolean(paymentStatus),
+                validAmount: Number.isFinite(amount),
+                currency
+            });
+
             return res.status(400).json({
                 message: 'Invalid payment information.'
             });
