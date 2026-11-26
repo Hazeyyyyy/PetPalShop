@@ -319,4 +319,221 @@ router.get(
     }
 );
 
+
+router.post(
+    '/reconcile/:order_id',
+    authenticateToken,
+    checkPaymentOrderOwner,
+    async (req, res) => {
+        let connection;
+        let transactionStarted = false;
+
+        try {
+            const { order_id } = req.params;
+
+            if (!process.env.MAYA_SECRET_KEY) {
+                return res.status(500).json({
+                    message: 'Maya secret key is missing.'
+                });
+            }
+
+            const [payments] = await db.query(
+                `SELECT payments.*, orders.total_amount
+                FROM payments
+                JOIN orders ON payments.order_id = orders.order_id
+                WHERE payments.order_id = ?`,
+                [order_id]
+            );
+
+            if (payments.length === 0) {
+                return res.status(404).json({
+                    message: 'Payment not found.'
+                });
+            }
+
+            const payment = payments[0];
+
+            if (payment.payment_status !== 'pending') {
+                return res.status(200).json({
+                    message: 'Payment is already processed.',
+                    payment_status: payment.payment_status
+                });
+            }
+
+            if (!payment.payment_reference) {
+                return res.status(400).json({
+                    message: 'Maya checkout reference is missing.'
+                });
+            }
+
+            const mayaResponse = await fetch(
+                `https://pg-sandbox.paymaya.com/payments/v1/payments/${encodeURIComponent(payment.payment_reference)}`,
+                {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Authorization':
+                            'Basic ' +
+                            Buffer.from(
+                                process.env.MAYA_SECRET_KEY + ':'
+                            ).toString('base64')
+                    }
+                }
+            );
+
+            const mayaData = await mayaResponse.json();
+
+            if (!mayaResponse.ok) {
+                return res.status(502).json({
+                    message: 'Unable to retrieve payment status from Maya.'
+                });
+            }
+
+            const mayaStatus = mayaData.status;
+
+            const mayaAmount = Number(
+                mayaData.totalAmount?.value ??
+                mayaData.amount
+            );
+
+            const mayaCurrency =
+                mayaData.totalAmount?.currency ??
+                mayaData.currency;
+
+            if (
+                !Number.isFinite(mayaAmount) ||
+                Math.round(mayaAmount * 100) !==
+                Math.round(Number(payment.total_amount) * 100) ||
+                mayaCurrency !== 'PHP'
+            ) {
+                return res.status(400).json({
+                    message: 'Maya payment amount or currency does not match the order.'
+                });
+            }
+
+            const successfulStatuses = ['PAYMENT_SUCCESS'];
+
+            const failedStatuses = [
+                'PAYMENT_FAILED',
+                'PAYMENT_EXPIRED',
+                'PAYMENT_CANCELLED'
+            ];
+
+            if (
+                !successfulStatuses.includes(mayaStatus) &&
+                !failedStatuses.includes(mayaStatus)
+            ) {
+                return res.status(200).json({
+                    message: 'Payment is not yet in a final status.',
+                    maya_status: mayaStatus,
+                    payment_status: 'pending'
+                });
+            }
+
+            connection = await db.getConnection();
+
+            await connection.beginTransaction();
+            transactionStarted = true;
+
+            const [lockedPayments] = await connection.query(
+                `SELECT payment_status
+                FROM payments
+                WHERE payment_id = ?
+                FOR UPDATE`,
+                [payment.payment_id]
+            );
+
+            if (
+                lockedPayments.length === 0 ||
+                lockedPayments[0].payment_status !== 'pending'
+            ) {
+                await connection.rollback();
+                transactionStarted = false;
+
+                return res.status(200).json({
+                    message: 'Payment was already processed.',
+                    payment_status: lockedPayments[0]?.payment_status
+                });
+            }
+
+            if (successfulStatuses.includes(mayaStatus)) {
+
+                await connection.query(
+                    `UPDATE payments
+                    SET payment_status = 'paid'
+                    WHERE payment_id = ?`,
+                    [payment.payment_id]
+                );
+
+                await connection.query(
+                    `UPDATE orders
+                    SET order_status = 'processing'
+                    WHERE order_id = ?`,
+                    [order_id]
+                );
+
+            } else {
+
+                await connection.query(
+                    `UPDATE payments
+                    SET payment_status = 'failed'
+                    WHERE payment_id = ?`,
+                    [payment.payment_id]
+                );
+
+                const [orderItems] = await connection.query(
+                    `SELECT product_id, quantity
+                    FROM order_items
+                    WHERE order_id = ?`,
+                    [order_id]
+                );
+
+                if (orderItems.length === 0) {
+                    throw new Error(
+                        'No order items found for stock restoration.'
+                    );
+                }
+
+                for (const item of orderItems) {
+                    await connection.query(
+                        `UPDATE products
+                        SET stock = stock + ?
+                        WHERE product_id = ?`,
+                        [item.quantity, item.product_id]
+                    );
+                }
+            }
+
+            await connection.commit();
+            transactionStarted = false;
+
+            return res.status(200).json({
+                message: 'Payment successfully reconciled!',
+                maya_status: mayaStatus,
+                payment_status: successfulStatuses.includes(mayaStatus)
+                    ? 'paid'
+                    : 'failed'
+            });
+
+        } catch (error) {
+
+            if (connection && transactionStarted) {
+                await connection.rollback();
+            }
+
+            console.error('Payment reconciliation error:', error.message);
+
+            return res.status(500).json({
+                message: 'Failed to reconcile payment.'
+            });
+
+        } finally {
+
+            if (connection) {
+                connection.release();
+            }
+        }
+    }
+);
+
 module.exports = router;
