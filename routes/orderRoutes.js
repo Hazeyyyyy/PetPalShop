@@ -229,51 +229,89 @@ router.get('/details/:order_id', authenticateToken, checkOrderOwner, async (req,
     }
 });
 
+
 router.put('/:order_id/status', authenticateToken, authorizeRole('admin'), async (req, res) => {
+    let connection;
+
     try {
         const { order_id } = req.params;
         const { order_status } = req.body;
 
-        const allowedStatuses = [
-            'pending',
-            'processing',
-            'shipped',
-            'delivered',
-            'cancelled'
-        ];
+        const allowedTransitions = {
+            processing: ['shipped'],
+            shipped: ['delivered']
+        };
 
-        if (!allowedStatuses.includes(order_status)) {
+        if (!['shipped', 'delivered'].includes(order_status)) {
             return res.status(400).json({
                 message: 'Invalid order status.'
             });
         }
 
-        const [orders] = await db.query(
-            'SELECT * FROM orders WHERE order_id = ?',
+        connection = await db.getConnection();
+
+        await connection.beginTransaction();
+
+        const [orders] = await connection.query(
+            `SELECT order_status
+            FROM orders
+            WHERE order_id = ?
+            FOR UPDATE`,
             [order_id]
         );
 
         if (orders.length === 0) {
+            await connection.rollback();
+
             return res.status(404).json({
                 message: 'Order not found.'
             });
         }
 
-        await db.query(
-            'UPDATE orders SET order_status = ? WHERE order_id = ?',
+        const currentStatus = orders[0].order_status;
+
+        const validNextStatuses = allowedTransitions[currentStatus] || [];
+
+        if (!validNextStatuses.includes(order_status)) {
+            await connection.rollback();
+
+            return res.status(400).json({
+                message: `Cannot change order status from ${currentStatus} to ${order_status}.`
+            });
+        }
+
+        await connection.query(
+            `UPDATE orders
+            SET order_status = ?
+            WHERE order_id = ?`,
             [order_status, order_id]
         );
 
+        await connection.commit();
+
         res.status(200).json({
             message: 'Order status updated successfully!',
+            previous_status: currentStatus,
             order_status: order_status
         });
 
     } catch (error) {
+
+        if (connection) {
+            await connection.rollback();
+        }
+
+        console.error('Order status update error:', error.message);
+
         res.status(500).json({
-            message: 'Failed to update order status.',
-            error: error.message
+            message: 'Failed to update order status.'
         });
+
+    } finally {
+
+        if (connection) {
+            connection.release();
+        }
     }
 });
 
