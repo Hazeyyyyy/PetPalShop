@@ -4,6 +4,10 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const swaggerUi = require('swagger-ui-express');
+const YAML = require('yaml');
+const fs = require('fs');
+const path = require('path');
 
 const db = require('./config/database');
 
@@ -27,6 +31,12 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json());
 
+const swaggerDocument = YAML.parse(
+    fs.readFileSync(path.join(__dirname, 'openapi.yaml'), 'utf8')
+);
+
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: 100,
@@ -47,10 +57,11 @@ const authLimiter = rateLimit({
     }
 });
 
-// Main route
+// Main Route
 app.get('/', (req, res) => {
     res.send('Pet Supplies E-Commerce API is running!');
 });
+
 
 app.use('/api/webhooks', mayaWebhook);
 
@@ -59,7 +70,7 @@ app.use('/api/users/register', authLimiter);
 
 app.use('/api', apiLimiter);
 
-// API routes
+// API Routes
 app.use('/api/products', productRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/users', userRoutes);

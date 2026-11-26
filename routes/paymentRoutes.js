@@ -2,6 +2,13 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/database');
 
+const MayaPaymentProcessor = require('../services/MayaPaymentProcessor');
+const PaymentService = require('../services/PaymentService');
+
+const paymentService = new PaymentService(
+    new MayaPaymentProcessor()
+);
+
 const {
     authenticateToken
 } = require('../middleware/authMiddleware');
@@ -109,32 +116,15 @@ router.post(
             const referenceNumber =
                 `PET-ORDER-${order_id}-${Date.now()}`;
 
-            const mayaResponse = await fetch(
-                'https://pg-sandbox.paymaya.com/checkout/v1/checkouts',
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json',
-                        'Authorization':
-                            'Basic ' +
-                            Buffer.from(
-                                process.env.MAYA_PUBLIC_KEY + ':'
-                            ).toString('base64')
-                    },
-                    body: JSON.stringify({
-                        totalAmount: {
-                            value: Number(amount.toFixed(2)),
-                            currency: 'PHP'
-                        },
-                        requestReferenceNumber: referenceNumber
-                    })
-                }
-            );
+            let mayaData;
 
-            const mayaData = await mayaResponse.json();
+            try {
+                mayaData = await paymentService.createCheckout(
+                    amount,
+                    referenceNumber
+                );
 
-            if (!mayaResponse.ok) {
+            } catch (error) {
                 console.log('Maya Checkout request failed.');
 
                 return res.status(400).json({
@@ -319,7 +309,6 @@ router.get(
     }
 );
 
-
 router.post(
     '/reconcile/:order_id',
     authenticateToken,
@@ -366,24 +355,14 @@ router.post(
                 });
             }
 
-            const mayaResponse = await fetch(
-                `https://pg-sandbox.paymaya.com/payments/v1/payments/${encodeURIComponent(payment.payment_reference)}`,
-                {
-                    method: 'GET',
-                    headers: {
-                        'Accept': 'application/json',
-                        'Authorization':
-                            'Basic ' +
-                            Buffer.from(
-                                process.env.MAYA_SECRET_KEY + ':'
-                            ).toString('base64')
-                    }
-                }
-            );
+            let mayaData;
 
-            const mayaData = await mayaResponse.json();
+            try {
+                mayaData = await paymentService.getPaymentStatus(
+                    payment.payment_reference
+                );
 
-            if (!mayaResponse.ok) {
+            } catch (error) {
                 return res.status(502).json({
                     message: 'Unable to retrieve payment status from Maya.'
                 });

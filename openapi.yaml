@@ -1,0 +1,953 @@
+openapi: 3.0.3
+
+info:
+  title: PetPalShop API
+  version: 1.0.0
+  description: |
+    REST API documentation for PetPalShop,
+    a pet supplies e-commerce application.
+    Includes user authentication, products, categories,
+    pets, cart, orders, Maya Checkout payments,
+    coupon discounts, and Gemini AI recommendations.
+
+servers:
+  - url: https://petpalshopapi.onrender.com
+    description: Production server
+
+tags:
+  - name: Users
+  - name: Products
+  - name: Categories
+  - name: Pets
+  - name: Cart
+  - name: Orders
+  - name: Payments
+  - name: AI
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required:
+        - name
+        - email
+        - password
+      properties:
+        name:
+          type: string
+          example: Hazel
+        email:
+          type: string
+          format: email
+          example: customer@example.com
+        password:
+          type: string
+          format: password
+          example: SecurePassword123
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: customer@example.com
+        password:
+          type: string
+          format: password
+          example: SecurePassword123
+
+    ErrorResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Invalid request.
+
+paths:
+  /api/users/register:
+    post:
+      tags:
+        - Users
+      summary: Register a new customer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: User registered successfully
+        "400":
+          description: Missing required fields
+        "409":
+          description: Email already registered
+
+  /api/users/login:
+    post:
+      tags:
+        - Users
+      summary: Log in and receive a JWT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+        "401":
+          description: Invalid email or password
+
+  /api/users:
+    get:
+      tags:
+        - Users
+      summary: Retrieve all users
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Users retrieved successfully
+        "401":
+          description: Authentication required
+        "403":
+          description: Admin access required
+
+  
+  /api/payments/checkout/{order_id}:
+    post:
+      tags:
+        - Payments
+      summary: Create or retry a Maya Checkout payment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: order_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "201":
+          description: Maya Checkout created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Maya Checkout created successfully!
+                  payment_id:
+                    type: integer
+                    example: 10
+                  order_id:
+                    type: integer
+                    example: 11
+                  payment_status:
+                    type: string
+                    example: pending
+                  checkout_url:
+                    type: string
+                    format: uri
+        "400":
+          description: Invalid order or Maya Checkout request failed
+        "401":
+          description: Authentication required
+        "403":
+          description: Access denied
+        "404":
+          description: Order not found
+        "409":
+          description: Payment already exists or cannot be retried
+        "500":
+          description: Checkout creation failed
+        "502":
+          description: Invalid Maya checkout response
+
+  /api/payments/{order_id}:
+    get:
+      tags:
+        - Payments
+      summary: Retrieve payment details for an order
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: order_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Payment details retrieved
+        "404":
+          description: Payment not found
+
+  /api/payments/reconcile/{order_id}:
+    post:
+      tags:
+        - Payments
+      summary: Reconcile a payment if its webhook was missed
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: order_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Payment status reconciled or already processed
+        "400":
+          description: Amount or currency mismatch
+        "502":
+          description: Unable to retrieve payment status from Maya
+
+
+  /api/products:
+    get:
+      tags:
+        - Products
+      summary: Retrieve all products
+      responses:
+        '200':
+          description: Products retrieved successfully
+        '500':
+          description: Failed to retrieve products
+
+    post:
+      tags:
+        - Products
+      summary: Add a new product
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - category_id
+                - product_name
+                - price
+                - stock
+              properties:
+                category_id:
+                  type: integer
+                  example: 1
+                product_name:
+                  type: string
+                  example: Cat Food
+                description:
+                  type: string
+                  example: Healthy food for cats
+                price:
+                  type: number
+                  example: 250.00
+                stock:
+                  type: integer
+                  example: 30
+      responses:
+        '201':
+          description: Product added successfully
+        '400':
+          description: Invalid product information
+        '401':
+          description: Authentication required
+        '403':
+          description: Admin access required
+
+  /api/products/{id}:
+    put:
+      tags:
+        - Products
+      summary: Update an existing product
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - category_id
+                - product_name
+                - price
+                - stock
+              properties:
+                category_id:
+                  type: integer
+                  example: 1
+                product_name:
+                  type: string
+                  example: Updated Cat Food
+                description:
+                  type: string
+                  example: Updated product description
+                price:
+                  type: number
+                  example: 300.00
+                stock:
+                  type: integer
+                  example: 25
+      responses:
+        '200':
+          description: Product updated successfully
+        '400':
+          description: Invalid product information
+        '401':
+          description: Authentication required
+        '403':
+          description: Admin access required
+        '404':
+          description: Product not found
+
+    delete:
+      tags:
+        - Products
+      summary: Delete a product
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Product deleted successfully
+        '401':
+          description: Authentication required
+        '403':
+          description: Admin access required
+        '404':
+          description: Product not found
+
+
+  /api/categories:
+    get:
+      tags:
+        - Categories
+      summary: Retrieve all categories
+      responses:
+        "200":
+          description: Categories retrieved successfully
+        "500":
+          description: Failed to retrieve categories
+
+    post:
+      tags:
+        - Categories
+      summary: Add a new category
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - category_name
+              properties:
+                category_name:
+                  type: string
+                  example: Pet Food
+                description:
+                  type: string
+                  example: Food products for pets
+      responses:
+        "201":
+          description: Category added successfully
+        "400":
+          description: Category name is required
+        "401":
+          description: Authentication required
+        "403":
+          description: Admin access required
+
+  /api/categories/{id}:
+    put:
+      tags:
+        - Categories
+      summary: Update a category
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - category_name
+              properties:
+                category_name:
+                  type: string
+                  example: Updated Pet Food
+                description:
+                  type: string
+                  example: Updated category description
+      responses:
+        "200":
+          description: Category updated successfully
+        "400":
+          description: Category name is required
+        "401":
+          description: Authentication required
+        "403":
+          description: Admin access required
+        "404":
+          description: Category not found
+
+    delete:
+      tags:
+        - Categories
+      summary: Delete a category
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Category deleted successfully
+        "401":
+          description: Authentication required
+        "403":
+          description: Admin access required
+        "404":
+          description: Category not found
+
+
+  /api/pets:
+    get:
+      tags:
+        - Pets
+      summary: Retrieve pets
+      description: Customers can view their own pets. Admins can view all pets.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Pets retrieved successfully
+        "401":
+          description: Authentication required
+        "500":
+          description: Failed to retrieve pets
+
+    post:
+      tags:
+        - Pets
+      summary: Add a pet
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - pet_name
+                - pet_type
+              properties:
+                pet_name:
+                  type: string
+                  example: Mochi
+                pet_type:
+                  type: string
+                  example: Cat
+                breed:
+                  type: string
+                  example: Persian
+                age:
+                  type: integer
+                  example: 2
+                size:
+                  type: string
+                  example: Small
+      responses:
+        "201":
+          description: Pet added successfully
+        "400":
+          description: Invalid pet information
+        "401":
+          description: Authentication required
+
+  /api/pets/{id}:
+    put:
+      tags:
+        - Pets
+      summary: Update a pet
+      description: Pet owners can update their own pets. Admins can update any pet.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - pet_name
+                - pet_type
+              properties:
+                pet_name:
+                  type: string
+                  example: Mochi
+                pet_type:
+                  type: string
+                  example: Cat
+                breed:
+                  type: string
+                  example: Persian
+                age:
+                  type: integer
+                  example: 3
+                size:
+                  type: string
+                  example: Medium
+      responses:
+        "200":
+          description: Pet updated successfully
+        "400":
+          description: Invalid pet information or pet ID
+        "401":
+          description: Authentication required
+        "404":
+          description: Pet not found or access denied
+
+    delete:
+      tags:
+        - Pets
+      summary: Delete a pet
+      description: Pet owners can delete their own pets. Admins can delete any pet.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Pet deleted successfully
+        "400":
+          description: Invalid pet ID
+        "401":
+          description: Authentication required
+        "404":
+          description: Pet not found or access denied
+
+
+  /api/cart/{user_id}:
+    get:
+      tags:
+        - Cart
+      summary: Retrieve a user's cart
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Cart retrieved successfully or cart is empty
+        "401":
+          description: Authentication required
+        "403":
+          description: Access denied
+        "500":
+          description: Failed to retrieve cart
+
+  /api/cart/{user_id}/items:
+    post:
+      tags:
+        - Cart
+      summary: Add a product to the cart
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - product_id
+                - quantity
+              properties:
+                product_id:
+                  type: integer
+                  example: 1
+                quantity:
+                  type: integer
+                  example: 2
+      responses:
+        "201":
+          description: Product added to cart successfully
+        "400":
+          description: Invalid quantity or insufficient stock
+        "401":
+          description: Authentication required
+        "403":
+          description: Access denied
+        "404":
+          description: Product not found
+
+  /api/cart/{user_id}/items/{cart_item_id}:
+    put:
+      tags:
+        - Cart
+      summary: Update cart item quantity
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: cart_item_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - quantity
+              properties:
+                quantity:
+                  type: integer
+                  example: 3
+      responses:
+        "200":
+          description: Cart quantity updated successfully
+        "400":
+          description: Invalid quantity or insufficient stock
+        "401":
+          description: Authentication required
+        "403":
+          description: Access denied
+        "404":
+          description: Cart item not found
+
+    delete:
+      tags:
+        - Cart
+      summary: Remove a product from the cart
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: cart_item_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Product removed from cart successfully
+        "401":
+          description: Authentication required
+        "403":
+          description: Access denied
+        "404":
+          description: Cart item not found
+
+
+  /api/orders/{user_id}:
+    post:
+      tags:
+        - Orders
+      summary: Place a new order
+      description: Creates an order using the user's cart and optionally applies a coupon code.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                coupon_code:
+                  type: string
+                  example: WELCOME10
+      responses:
+        "201":
+          description: Order placed successfully
+        "400":
+          description: Empty cart, invalid coupon, or insufficient stock
+        "401":
+          description: Authentication required
+        "403":
+          description: Access denied
+
+    get:
+      tags:
+        - Orders
+      summary: Retrieve a user's orders
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Orders retrieved successfully
+        "401":
+          description: Authentication required
+        "403":
+          description: Access denied
+
+  /api/orders/details/{order_id}:
+    get:
+      tags:
+        - Orders
+      summary: Retrieve order details
+      description: Retrieves an order and its items. Only the owner or an admin can access it.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: order_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Order details retrieved successfully
+        "401":
+          description: Authentication required
+        "403":
+          description: Access denied
+        "404":
+          description: Order not found
+
+  /api/orders/{order_id}/status:
+    put:
+      tags:
+        - Orders
+      summary: Update order status
+      description: Admin only. Allowed transitions are processing to shipped and shipped to delivered.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: order_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - order_status
+              properties:
+                order_status:
+                  type: string
+                  enum:
+                    - shipped
+                    - delivered
+                  example: shipped
+      responses:
+        "200":
+          description: Order status updated successfully
+        "400":
+          description: Invalid order status or transition
+        "401":
+          description: Authentication required
+        "403":
+          description: Admin access required
+        "404":
+          description: Order not found
+
+
+  /api/ai/recommendations:
+    post:
+      tags:
+        - AI
+      summary: Generate AI pet product recommendations
+      description: Uses Gemini AI and available products from the database to answer customer questions and recommend suitable products.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - question
+              properties:
+                question:
+                  type: string
+                  example: What food do you recommend for my dog?
+      responses:
+        "200":
+          description: AI recommendations generated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: AI recommendations generated successfully!
+                  recommendation:
+                    type: string
+                    example: I recommend checking our available dog food products.
+                  available_products:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        product_id:
+                          type: integer
+                        product_name:
+                          type: string
+                        description:
+                          type: string
+                        price:
+                          type: number
+                        stock:
+                          type: integer
+                        category_name:
+                          type: string
+        "400":
+          description: Missing or invalid question
+        "500":
+          description: Gemini API key missing or recommendation generation failed
+
+
+  /api/webhooks/maya:
+    post:
+      tags:
+        - Payments
+      summary: Receive Maya payment webhook notifications
+      description: |
+        Receives payment notifications from Maya Checkout.
+        Verifies the webhook signature and timestamp,
+        validates payment information, prevents duplicate events,
+        and updates the order and payment status.
+      parameters:
+        - name: x-maya-webhook-signature
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Maya webhook signature used for verification.
+        - name: x-maya-webhook-timestamp
+          in: header
+          required: true
+          schema:
+            type: integer
+          description: Webhook timestamp in milliseconds.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - requestReferenceNumber
+                - amount
+                - currency
+              properties:
+                requestReferenceNumber:
+                  type: string
+                  example: PET-ORDER-11-1795686430258
+                status:
+                  type: string
+                  enum:
+                    - PAYMENT_SUCCESS
+                    - PAYMENT_FAILED
+                    - PAYMENT_EXPIRED
+                    - PAYMENT_CANCELLED
+                  example: PAYMENT_SUCCESS
+                amount:
+                  type: number
+                  example: 333.00
+                currency:
+                  type: string
+                  example: PHP
+      responses:
+        "200":
+          description: Webhook received, processed, or identified as a duplicate event
+        "400":
+          description: Invalid payment information or amount mismatch
+        "401":
+          description: Invalid or expired timestamp or webhook signature
+        "404":
+          description: Matching payment not found
+        "500":
+          description: Failed to process Maya webhook
