@@ -9,7 +9,6 @@ const {
     authorizeRole
 } = require('../middleware/authMiddleware');
 
-// Getting all users (Admin only)
 router.get('/', authenticateToken, authorizeRole('admin'), async (req, res) => {
     try {
         const [users] = await db.query(
@@ -30,7 +29,6 @@ router.get('/', authenticateToken, authorizeRole('admin'), async (req, res) => {
     }
 });
 
-// User Registration
 router.post('/register', async (req, res) => {
     try {
         const { name, email, password } = req.body;
@@ -73,7 +71,6 @@ router.post('/register', async (req, res) => {
     }
 });
 
-// User Login
 router.post('/login', async (req, res) => {
     try {
         const { email, password } = req.body;

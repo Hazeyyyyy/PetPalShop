@@ -2,12 +2,56 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/database');
 
-// Creating a new order from the user's cart
-router.post('/:user_id', async (req, res) => {
+const {
+    authenticateToken,
+    authorizeRole
+} = require('../middleware/authMiddleware');
+
+const checkOrderOwner = async (req, res, next) => {
+    try {
+        const { order_id } = req.params;
+
+        const [orders] = await db.query(
+            'SELECT user_id FROM orders WHERE order_id = ?',
+            [order_id]
+        );
+
+        if (orders.length === 0) {
+            return res.status(404).json({
+                message: 'Order not found.'
+            });
+        }
+
+        if (
+            req.user.role !== 'admin' &&
+            Number(orders[0].user_id) !== Number(req.user.user_id)
+        ) {
+            return res.status(403).json({
+                message: 'Access denied. You cannot access this order.'
+            });
+        }
+
+        next();
+
+    } catch (error) {
+        res.status(500).json({
+            message: 'Failed to verify order ownership.',
+            error: error.message
+        });
+    }
+};
+
+router.post('/:user_id', authenticateToken, async (req, res) => {
     const connection = await db.getConnection();
 
     try {
         const { user_id } = req.params;
+
+        if (Number(user_id) !== Number(req.user.user_id)) {
+            return res.status(403).json({
+                message: 'Access denied. You can only place your own orders.'
+            });
+        }
 
         await connection.beginTransaction();
 
@@ -69,7 +113,6 @@ router.post('/:user_id', async (req, res) => {
         const order_id = orderResult.insertId;
 
         for (let item of items) {
-
             const [stockResult] = await connection.query(
                 `UPDATE products
                 SET stock = stock - ?
@@ -123,10 +166,15 @@ router.post('/:user_id', async (req, res) => {
     }
 });
 
-// Getting all orders of a user
-router.get('/:user_id', async (req, res) => {
+router.get('/:user_id', authenticateToken, async (req, res) => {
     try {
         const { user_id } = req.params;
+
+        if (Number(user_id) !== Number(req.user.user_id)) {
+            return res.status(403).json({
+                message: 'Access denied. You can only view your own orders.'
+            });
+        }
 
         const [orders] = await db.query(
             `SELECT * FROM orders
@@ -148,8 +196,7 @@ router.get('/:user_id', async (req, res) => {
     }
 });
 
-// Getting the details of a specific order
-router.get('/details/:order_id', async (req, res) => {
+router.get('/details/:order_id', authenticateToken, checkOrderOwner, async (req, res) => {
     try {
         const { order_id } = req.params;
 
@@ -157,12 +204,6 @@ router.get('/details/:order_id', async (req, res) => {
             'SELECT * FROM orders WHERE order_id = ?',
             [order_id]
         );
-
-        if (orders.length === 0) {
-            return res.status(404).json({
-                message: 'Order not found.'
-            });
-        }
 
         const [items] = await db.query(`
             SELECT
@@ -188,8 +229,7 @@ router.get('/details/:order_id', async (req, res) => {
     }
 });
 
-// Updating order status
-router.put('/:order_id/status', async (req, res) => {
+router.put('/:order_id/status', authenticateToken, authorizeRole('admin'), async (req, res) => {
     try {
         const { order_id } = req.params;
         const { order_status } = req.body;

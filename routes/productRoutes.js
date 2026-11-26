@@ -2,7 +2,11 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/database');
 
-// Getting all the products
+const {
+    authenticateToken,
+    authorizeRole
+} = require('../middleware/authMiddleware');
+
 router.get('/', async (req, res) => {
     try {
         const [products] = await db.query(`
@@ -27,9 +31,7 @@ router.get('/', async (req, res) => {
     }
 });
 
-
-// Adding a new product
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, authorizeRole('admin'), async (req, res) => {
     try {
         const {
             category_id,
@@ -85,9 +87,7 @@ router.post('/', async (req, res) => {
     }
 });
 
-
-// Updating a product
-router.put('/:id', async (req, res) => {
+router.put('/:id', authenticateToken, authorizeRole('admin'), async (req, res) => {
     try {
         const { id } = req.params;
 
@@ -161,9 +161,7 @@ router.put('/:id', async (req, res) => {
     }
 });
 
-
-// Deleting a product
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticateToken, authorizeRole('admin'), async (req, res) => {
     try {
         const { id } = req.params;
 

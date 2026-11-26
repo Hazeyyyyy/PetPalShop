@@ -2,8 +2,21 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/database');
 
-// Getting user's cart
-router.get('/:user_id', async (req, res) => {
+const { authenticateToken } = require('../middleware/authMiddleware');
+
+const checkCartOwner = (req, res, next) => {
+    const { user_id } = req.params;
+
+    if (Number(user_id) !== Number(req.user.user_id)) {
+        return res.status(403).json({
+            message: 'Access denied. You can only access your own cart.'
+        });
+    }
+
+    next();
+};
+
+router.get('/:user_id', authenticateToken, checkCartOwner, async (req, res) => {
     try {
         const { user_id } = req.params;
 
@@ -49,21 +62,22 @@ router.get('/:user_id', async (req, res) => {
     }
 });
 
-// Adding a product to cart
-router.post('/:user_id/items', async (req, res) => {
+router.post('/:user_id/items', authenticateToken, checkCartOwner, async (req, res) => {
     try {
         const { user_id } = req.params;
         const { product_id, quantity } = req.body;
 
-        if (!product_id || !quantity) {
+        if (
+            !Number.isInteger(Number(product_id)) ||
+            Number(product_id) <= 0 ||
+            quantity === undefined ||
+            quantity === null ||
+            quantity === '' ||
+            !Number.isInteger(Number(quantity)) ||
+            Number(quantity) <= 0
+        ) {
             return res.status(400).json({
-                message: 'Product ID and quantity are required.'
-            });
-        }
-
-        if (!Number.isInteger(Number(quantity)) || Number(quantity) <= 0) {
-            return res.status(400).json({
-                message: 'Quantity must be a positive whole number.'
+                message: 'Valid product ID and positive whole-number quantity are required.'
             });
         }
 
@@ -107,10 +121,10 @@ router.post('/:user_id/items', async (req, res) => {
         let totalQuantity = Number(quantity);
 
         if (existingItems.length > 0) {
-            totalQuantity += existingItems[0].quantity;
+            totalQuantity += Number(existingItems[0].quantity);
         }
 
-        if (totalQuantity > product.stock) {
+        if (totalQuantity > Number(product.stock)) {
             return res.status(400).json({
                 message: 'Not enough stock available.'
             });
@@ -144,13 +158,18 @@ router.post('/:user_id/items', async (req, res) => {
     }
 });
 
-// Updating cart item quantity
-router.put('/:user_id/items/:cart_item_id', async (req, res) => {
+router.put('/:user_id/items/:cart_item_id', authenticateToken, checkCartOwner, async (req, res) => {
     try {
         const { user_id, cart_item_id } = req.params;
         const { quantity } = req.body;
 
-        if (!Number.isInteger(Number(quantity)) || Number(quantity) <= 0) {
+        if (
+            quantity === undefined ||
+            quantity === null ||
+            quantity === '' ||
+            !Number.isInteger(Number(quantity)) ||
+            Number(quantity) <= 0
+        ) {
             return res.status(400).json({
                 message: 'Quantity must be a positive whole number.'
             });
@@ -171,7 +190,7 @@ router.put('/:user_id/items/:cart_item_id', async (req, res) => {
             });
         }
 
-        if (Number(quantity) > items[0].stock) {
+        if (Number(quantity) > Number(items[0].stock)) {
             return res.status(400).json({
                 message: 'Not enough stock available.'
             });
@@ -194,8 +213,7 @@ router.put('/:user_id/items/:cart_item_id', async (req, res) => {
     }
 });
 
-// Removing a product from cart
-router.delete('/:user_id/items/:cart_item_id', async (req, res) => {
+router.delete('/:user_id/items/:cart_item_id', authenticateToken, checkCartOwner, async (req, res) => {
     try {
         const { user_id, cart_item_id } = req.params;
 

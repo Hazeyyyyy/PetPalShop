@@ -2,7 +2,11 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/database');
 
-// Getting all categories
+const {
+    authenticateToken,
+    authorizeRole
+} = require('../middleware/authMiddleware');
+
 router.get('/', async (req, res) => {
     try {
         const [categories] = await db.query(
@@ -22,12 +26,14 @@ router.get('/', async (req, res) => {
     }
 });
 
-// Adding a new category
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, authorizeRole('admin'), async (req, res) => {
     try {
         const { category_name, description } = req.body;
 
-        if (!category_name || category_name.trim() === '') {
+        if (
+            typeof category_name !== 'string' ||
+            category_name.trim() === ''
+        ) {
             return res.status(400).json({
                 message: 'Category name is required.'
             });
@@ -52,13 +58,15 @@ router.post('/', async (req, res) => {
     }
 });
 
-// Updating a category
-router.put('/:id', async (req, res) => {
+router.put('/:id', authenticateToken, authorizeRole('admin'), async (req, res) => {
     try {
         const { id } = req.params;
         const { category_name, description } = req.body;
 
-        if (!category_name || category_name.trim() === '') {
+        if (
+            typeof category_name !== 'string' ||
+            category_name.trim() === ''
+        ) {
             return res.status(400).json({
                 message: 'Category name is required.'
             });
@@ -89,8 +97,7 @@ router.put('/:id', async (req, res) => {
     }
 });
 
-// Deleting a category
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticateToken, authorizeRole('admin'), async (req, res) => {
     try {
         const { id } = req.params;
 
